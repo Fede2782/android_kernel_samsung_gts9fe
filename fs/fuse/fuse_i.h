@@ -35,6 +35,13 @@
 #include <linux/refcount.h>
 #include <linux/user_namespace.h>
 #include <linux/statfs.h>
+#include <linux/freezer.h>
+
+#ifdef CONFIG_FUSE_SUPPORT_STLOG
+#include <linux/fslog.h>
+#else
+#define ST_LOG(fmt, ...)
+#endif
 
 #define FUSE_SUPER_MAGIC 0x65735546
 
@@ -1503,14 +1510,11 @@ void *fuse_link_finalize(struct fuse_bpf_args *fa, struct dentry *entry,
 			 struct inode *dir, struct dentry *newent);
 
 int fuse_release_initialize(struct fuse_bpf_args *fa, struct fuse_release_in *fri,
-			    struct inode *inode, struct file *file);
-int fuse_releasedir_initialize(struct fuse_bpf_args *fa,
-			struct fuse_release_in *fri,
-			struct inode *inode, struct file *file);
+			    struct inode *inode, struct fuse_file *ff);
 int fuse_release_backing(struct fuse_bpf_args *fa,
-			 struct inode *inode, struct file *file);
+			 struct inode *inode, struct fuse_file *ff);
 void *fuse_release_finalize(struct fuse_bpf_args *fa,
-			    struct inode *inode, struct file *file);
+			    struct inode *inode, struct fuse_file *ff);
 
 int fuse_flush_initialize(struct fuse_bpf_args *fa, struct fuse_flush_in *ffi,
 			  struct file *file, fl_owner_t id);
@@ -1884,6 +1888,16 @@ void __exit fuse_bpf_cleanup(void);
 
 ssize_t fuse_bpf_simple_request(struct fuse_mount *fm, struct fuse_bpf_args *args);
 
+static inline int fuse_bpf_run(struct bpf_prog *prog, struct fuse_bpf_args *fba)
+{
+	int ret;
+
+	migrate_disable();
+	ret = bpf_prog_run(prog, fba);
+	migrate_enable();
+	return ret;
+}
+
 /*
  * expression statement to wrap the backing filter logic
  * struct inode *inode: inode with bpf and backing inode
@@ -1935,7 +1949,7 @@ ssize_t fuse_bpf_simple_request(struct fuse_mount *fm, struct fuse_bpf_args *arg
 		fa.out_numargs = fa.in_numargs;				\
 									\
 		ext_flags = fuse_inode->bpf ?				\
-			bpf_prog_run(fuse_inode->bpf, &fa) :		\
+			fuse_bpf_run(fuse_inode->bpf, &fa) :		\
 			FUSE_BPF_BACKING;				\
 		if (ext_flags < 0) {					\
 			fer = (struct fuse_err_ret) {			\
@@ -1990,7 +2004,7 @@ ssize_t fuse_bpf_simple_request(struct fuse_mount *fm, struct fuse_bpf_args *arg
 					.size = fa.out_args[i].size,	\
 					.value = fa.out_args[i].value,	\
 				};					\
-		ext_flags = bpf_prog_run(fuse_inode->bpf, &fa);		\
+		ext_flags = fuse_bpf_run(fuse_inode->bpf, &fa);		\
 		if (ext_flags < 0) {					\
 			fer = (struct fuse_err_ret) {			\
 				ERR_PTR(ext_flags),			\
@@ -2023,5 +2037,49 @@ ssize_t fuse_bpf_simple_request(struct fuse_mount *fm, struct fuse_bpf_args *arg
 })
 
 #endif /* CONFIG_FUSE_BPF */
+
+#ifdef CONFIG_FREEZER
+static inline void fuse_freezer_do_not_count(void)
+{
+	current->flags |= PF_FREEZER_SKIP;
+}
+
+static inline void fuse_freezer_count(void)
+{
+	current->flags &= ~PF_FREEZER_SKIP;
+}
+#else /* !CONFIG_FREEZER */
+static inline void fuse_freezer_do_not_count(void) {}
+static inline void fuse_freezer_count(void) {}
+#endif
+
+#define fuse_wait_event(wq, condition)						\
+({										\
+	fuse_freezer_do_not_count();						\
+	wait_event(wq, condition);						\
+	fuse_freezer_count();							\
+})
+
+#define fuse_wait_event_killable(wq, condition)					\
+({										\
+	int __ret = 0;								\
+										\
+	fuse_freezer_do_not_count();						\
+	__ret = wait_event_killable(wq, condition);				\
+	fuse_freezer_count();							\
+										\
+	__ret;									\
+})
+
+#define fuse_wait_event_killable_exclusive(wq, condition)			\
+({										\
+	int __ret = 0;								\
+										\
+	fuse_freezer_do_not_count();						\
+	__ret = wait_event_killable_exclusive(wq, condition);			\
+	fuse_freezer_count();							\
+										\
+	__ret;									\
+})
 
 #endif /* _FS_FUSE_I_H */
