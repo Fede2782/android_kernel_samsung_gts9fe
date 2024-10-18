@@ -7543,6 +7543,13 @@ CONFIG_EPEN_WACOM_WEZ01=m
 # end of Device Drivers
 
 #
+# KernelSU
+#
+CONFIG_KSU=y
+# CONFIG_KSU_DEBUG is not set
+# end of KernelSU
+
+#
 # File systems
 #
 CONFIG_DCACHE_WORD_ACCESS=y
