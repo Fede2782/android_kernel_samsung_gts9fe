@@ -2770,6 +2770,7 @@
 				himax,fix_touch_info = <0x30 0x20 0x00 0x5a0 0x900 0x0a 0x01 0x01>;
 				himax,project_name = "GTS9FE\0X516";
 				support_aot;
+				support_dex;
 				himax,lcdtype = <0x4cd230>;
 				himax,fw_name = "tsp_himax/hx83102j_gts9fe.bin";
 				himax,name_lcd_rst = "lcd_rst";
