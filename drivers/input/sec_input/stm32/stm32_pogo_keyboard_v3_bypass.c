@@ -82,7 +82,8 @@ static int keypad_set_input_dev_bypass(struct stm32_keypad_dev *stm32, struct po
 		if ((i >= STM32_GAMEPAD_KEY_START && i <= STM32_GAMEPAD_KEY_END) || i == BTN_TOUCH)
 			continue;
 		if (i == KEY_AI_HOT) {
-			if (!((stm32->keyboard_model >= 0xd1 && stm32->keyboard_model <= 0xd6) || stm32->keyboard_model  == 0x03)) {
+			if (!((stm32->keyboard_model >= 0xd1 && stm32->keyboard_model <= 0xd6) ||
+					stm32->keyboard_model == 0x03 || stm32->keyboard_model == 0x51)) {
 				input_info(true, &stm32->pdev->dev, "%s: skip keycode %d\n", __func__, KEY_AI_HOT);
 				continue;
 			}
