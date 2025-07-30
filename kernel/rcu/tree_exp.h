@@ -8,6 +8,7 @@
  */
 
 #include <linux/lockdep.h>
+#include <linux/sec_debug.h>
 
 static void rcu_exp_handler(void *unused);
 static int rcu_print_task_exp_stall(struct rcu_node *rnp);
@@ -514,6 +515,7 @@ static inline void synchronize_rcu_expedited_queue_work(struct rcu_exp_work *rew
 {
 	INIT_WORK_ONSTACK(&rew->rew_work, wait_rcu_exp_gp);
 	queue_work(rcu_gp_wq, &rew->rew_work);
+	secdbg_dtsk_built_set_data(DTYPE_WORK, &rew.rew_work);
 }
 
 static inline void synchronize_rcu_expedited_destroy_work(struct rcu_exp_work *rew)
@@ -670,6 +672,9 @@ static void synchronize_rcu_expedited_wait(void)
 				preempt_enable();
 			}
 		}
+		if (IS_ENABLED(CONFIG_SEC_DEBUG_PANIC_ON_RCU_STALL))
+			panic("RCU Stall\n");
+
 		jiffies_stall = 3 * rcu_jiffies_till_stall_check() + 3;
 	}
 }
@@ -946,6 +951,8 @@ void synchronize_rcu_expedited(void)
 	wait_event(rnp->exp_wq[rcu_seq_ctr(s) & 0x3],
 		   sync_exp_work_done(s));
 	smp_mb(); /* Work actions happen before return. */
+
+	secdbg_dtsk_built_clear_data();
 
 	/* Let the next expedited grace period start. */
 	mutex_unlock(&rcu_state.exp_mutex);
