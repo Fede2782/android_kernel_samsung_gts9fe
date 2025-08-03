@@ -9,6 +9,47 @@
 
 #include "fat.h"
 #include <linux/iversion.h>
+#include <linux/blkdev.h>
+
+#ifdef CONFIG_FAT_UEVENT
+static struct kobject fat_uevent_kobj;
+
+int fat_uevent_init(struct kset *fat_kset)
+{
+	int err;
+	struct kobj_type *ktype = get_ktype(&fat_kset->kobj);
+
+	fat_uevent_kobj.kset = fat_kset;
+	err = kobject_init_and_add(&fat_uevent_kobj, ktype, NULL, "uevent");
+	if (err)
+		pr_err("FAT-fs Unable to create fat uevent kobj\n");
+
+	return err;
+}
+
+void fat_uevent_uninit(void)
+{
+	kobject_del(&fat_uevent_kobj);
+	memset(&fat_uevent_kobj, 0, sizeof(struct kobject));
+}
+
+void fat_uevent_ro_remount(struct super_block *sb)
+{
+	struct block_device *bdev = sb->s_bdev;
+	dev_t bd_dev = bdev ? bdev->bd_dev : 0;
+
+	char major[16], minor[16];
+	char *envp[] = { major, minor, NULL };
+
+	snprintf(major, sizeof(major), "MAJOR=%d", MAJOR(bd_dev));
+	snprintf(minor, sizeof(minor), "MINOR=%d", MINOR(bd_dev));
+
+	kobject_uevent_env(&fat_uevent_kobj, KOBJ_CHANGE, envp);
+
+	ST_LOG("FAT-fs (%s[%d:%d]): Uevent triggered\n",
+			sb->s_id, MAJOR(bd_dev), MINOR(bd_dev));
+}
+#endif
 
 /*
  * fat_fs_error reports a file system problem that might indicate fa data
@@ -37,6 +78,7 @@ void __fat_fs_error(struct super_block *sb, int report, const char *fmt, ...)
 	else if (opts->errors == FAT_ERRORS_RO && !sb_rdonly(sb)) {
 		sb->s_flags |= SB_RDONLY;
 		fat_msg(sb, KERN_ERR, "Filesystem has been set read-only");
+		fat_uevent_ro_remount(sb);
 	}
 }
 EXPORT_SYMBOL_GPL(__fat_fs_error);
